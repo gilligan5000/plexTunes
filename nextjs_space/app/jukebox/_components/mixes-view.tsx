@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Disc3, Play, Loader2, Music2, Plus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Disc3, Play, Loader2, Music2, Plus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePlayer, TrackInfo } from '@/lib/player-context';
 import type { ViewType } from './jukebox-shell';
@@ -131,6 +131,13 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [formArtistIds, setFormArtistIds] = useState<string[]>([]);
   const [formPopularOnly, setFormPopularOnly] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Import playlists state
+  const [importOpen, setImportOpen] = useState(false);
+  const [playlists, setPlaylists] = useState<any[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [selectedPlaylists, setSelectedPlaylists] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
 
   // Station names and artist thumbs for card display
   const [stationNames, setStationNames] = useState<Record<string, string>>({});
@@ -302,6 +309,49 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
       setEditing(null);
     } catch { toast.error('Failed to save'); }
     setSaving(false);
+  };
+
+  // Import playlists handlers
+  const openImport = async () => {
+    setImportOpen(true);
+    setSelectedPlaylists([]);
+    setPlaylistsLoading(true);
+    try {
+      const res = await fetch('/api/playlists');
+      const data = await res?.json?.();
+      setPlaylists(data?.playlists ?? []);
+    } catch {
+      toast.error('Failed to fetch playlists');
+      setPlaylists([]);
+    }
+    setPlaylistsLoading(false);
+  };
+
+  const togglePlaylistSelection = (id: string) => {
+    setSelectedPlaylists(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
+  };
+
+  const handleImport = async () => {
+    if (selectedPlaylists.length === 0) { toast.error('Select at least one playlist'); return; }
+    setImporting(true);
+    try {
+      const res = await fetch('/api/playlists/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistIds: selectedPlaylists }),
+      });
+      const data = await res?.json?.();
+      if (data?.imported > 0) {
+        toast.success(`Imported ${data.imported} playlist${data.imported > 1 ? 's' : ''} as mix${data.imported > 1 ? 'es' : ''}`);
+        fetchMixes();
+        setImportOpen(false);
+      } else {
+        toast.error('No matching tracks found — make sure your library is synced');
+      }
+    } catch {
+      toast.error('Import failed');
+    }
+    setImporting(false);
   };
 
   const toggleStation = (id: string) => {
@@ -487,12 +537,75 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
           >
             <ChevronRight className="w-5 h-5" />
           </button>
+          <button onClick={openImport}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-secondary text-sm font-medium hover:bg-secondary/80 transition-colors">
+            <Download className="w-4 h-4" /> Import
+          </button>
           <button onClick={startNew}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
             <Plus className="w-4 h-4" /> New Mix
           </button>
         </div>
       </div>
+
+      {/* Import Playlists Modal */}
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !importing && setImportOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-card border border-border/40 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-border/30">
+              <h3 className="text-lg font-display font-bold flex items-center gap-2">
+                <Download className="w-5 h-5 text-primary" /> Import Playlists
+              </h3>
+              <button onClick={() => !importing && setImportOpen(false)} className="p-1.5 rounded-full hover:bg-secondary transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {playlistsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              ) : playlists.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Music2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No playlists found on your media server</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {playlists.map(pl => (
+                    <button key={pl.id} onClick={() => togglePlaylistSelection(pl.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                        selectedPlaylists.includes(pl.id) ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-secondary/60'
+                      }`}>
+                      <div className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                        selectedPlaylists.includes(pl.id) ? 'bg-primary border-primary' : 'border-muted-foreground/40'
+                      }`}>
+                        {selectedPlaylists.includes(pl.id) && <Check className="w-3 h-3 text-primary-foreground" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{pl.title}</p>
+                        <p className="text-xs text-muted-foreground">{pl.trackCount} track{pl.trackCount !== 1 ? 's' : ''}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {playlists.length > 0 && (
+              <div className="flex items-center justify-between p-4 border-t border-border/30">
+                <p className="text-xs text-muted-foreground">
+                  {selectedPlaylists.length} selected
+                </p>
+                <button onClick={handleImport} disabled={importing || selectedPlaylists.length === 0}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+                  {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  {importing ? 'Importing...' : 'Import Selected'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">

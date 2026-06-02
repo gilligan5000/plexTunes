@@ -55,5 +55,21 @@ export interface MediaLibraryBundle {
   tracks: MediaTrack[];
 }
 
+export interface MediaPlaylist {
+  id: string;
+  title: string;
+  trackCount: number;
+  thumb: string | null;
+}
+
+export interface MediaPlaylistTrack {
+  id: string;            // Track ID in the cache (e.g., "track-12345")
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  duration: number | null;
+  thumb: string | null;
+}
+
 // Progress callback invoked during long-running sync/fetch operations
 export type ProgressCallback = (pct: number, message: string) => Promise<void> | void;

@@ -13,6 +13,8 @@ import type {
   MediaArtist,
   MediaAlbum,
   MediaTrack,
+  MediaPlaylist,
+  MediaPlaylistTrack,
 } from './types';
 
 const API_VERSION = '1.16.1';
@@ -195,6 +197,33 @@ export class SubsonicAdapter implements MediaServerAdapter {
     params.set('size', String(Math.max(width, height)));
     const url = `${this.config.serverUrl}/rest/getCoverArt?${params}`;
     return fetch(url);
+  }
+
+  async getPlaylists(): Promise<MediaPlaylist[]> {
+    const data = await this.ssGet<any>('getPlaylists');
+    const items = data?.playlists?.playlist ?? [];
+    return items
+      .filter((p: any) => (p.songCount ?? 0) > 0)
+      .map((p: any) => ({
+        id: String(p.id),
+        title: p.name ?? 'Untitled',
+        trackCount: p.songCount ?? 0,
+        thumb: p.coverArt ? String(p.coverArt) : null,
+      }));
+  }
+
+  async getPlaylistTracks(playlistId: string): Promise<MediaPlaylistTrack[]> {
+    const data = await this.ssGet<any>('getPlaylist', { id: playlistId });
+    const entries = data?.playlist?.entry ?? [];
+    return entries.map((e: any) => ({
+      id: `track-${e.id}`,
+      title: e.title ?? 'Unknown',
+      artistId: e.artistId ? `artist-${e.artistId}` : '',
+      artistName: e.artist ?? 'Unknown Artist',
+      albumId: e.albumId ? `album-${e.albumId}` : '',
+      albumTitle: e.album ?? 'Unknown Album',
+      duration: (e.duration ?? 0) * 1000,
+    }));
   }
 
   async fetchStream(mediaKey: string, rangeHeader?: string | null): Promise<Response> {

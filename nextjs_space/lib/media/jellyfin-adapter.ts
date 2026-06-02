@@ -7,6 +7,8 @@ import type {
   MediaLibrarySection,
   MediaLibraryBundle,
   MediaServerConfig,
+  MediaPlaylist,
+  MediaPlaylistTrack,
   ProgressCallback,
   MediaArtist,
   MediaAlbum,
@@ -147,6 +149,55 @@ export class JellyfinAdapter implements MediaServerAdapter {
     });
 
     return { artists, albums, tracks };
+  }
+
+  async getPlaylists(): Promise<MediaPlaylist[]> {
+    try {
+      const params = new URLSearchParams({
+        IncludeItemTypes: 'Playlist',
+        Recursive: 'true',
+        Fields: 'ChildCount',
+      });
+      const data = await this.jfGet(`/Items?${params}`);
+      const items = (data?.Items ?? []) as any[];
+      return items
+        .filter((p: any) => p?.MediaType === 'Audio' || p?.MediaType === 'Unknown')
+        .map((p: any) => ({
+          id: String(p?.Id ?? ''),
+          title: p?.Name ?? 'Untitled',
+          trackCount: p?.ChildCount ?? 0,
+          thumb: p?.ImageTags?.Primary ? String(p.Id) : null,
+        }));
+    } catch (e: any) {
+      console.error('Jellyfin getPlaylists error:', e?.message);
+      return [];
+    }
+  }
+
+  async getPlaylistTracks(playlistId: string): Promise<MediaPlaylistTrack[]> {
+    try {
+      const params = new URLSearchParams({
+        ParentId: playlistId,
+        Fields: 'ArtistItems,AlbumId',
+      });
+      const data = await this.jfGet(`/Items?${params}`);
+      const items = (data?.Items ?? []) as any[];
+      return items.map((t: any) => {
+        const id = String(t?.Id ?? '');
+        const runtimeMs = t?.RunTimeTicks ? Math.round(Number(t.RunTimeTicks) / 10000) : null;
+        return {
+          id: `track-${id}`,
+          title: t?.Name ?? 'Unknown',
+          artistName: t?.ArtistItems?.[0]?.Name ?? t?.AlbumArtist ?? '',
+          albumTitle: t?.Album ?? '',
+          duration: runtimeMs,
+          thumb: t?.AlbumPrimaryImageTag ? String(t.AlbumId ?? id) : (t?.ImageTags?.Primary ? id : null),
+        };
+      });
+    } catch (e: any) {
+      console.error('Jellyfin getPlaylistTracks error:', e?.message);
+      return [];
+    }
   }
 
   async fetchImage(thumb: string, width: number, height: number): Promise<Response> {

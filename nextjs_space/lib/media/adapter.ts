@@ -12,6 +12,8 @@ import type {
   MediaLibrarySection,
   MediaLibraryBundle,
   MediaServerConfig,
+  MediaPlaylist,
+  MediaPlaylistTrack,
   ProgressCallback,
 } from './types';
 
@@ -28,6 +30,12 @@ export interface MediaServerAdapter {
   // Full library sync - fetches everything so we can populate the CachedArtist/Album/Track tables.
   // onProgress reports percentages (0-100) and a human-readable message.
   getFullLibrary(libraryId: string, onProgress?: ProgressCallback): Promise<MediaLibraryBundle>;
+
+  // Lists playlists from the media server.
+  getPlaylists(): Promise<MediaPlaylist[]>;
+
+  // Returns track details for a specific playlist.
+  getPlaylistTracks(playlistId: string): Promise<MediaPlaylistTrack[]>;
 
   // Returns a fetch() Response object for an image. The caller pipes the body back to the client.
   fetchImage(thumb: string, width: number, height: number): Promise<Response>;

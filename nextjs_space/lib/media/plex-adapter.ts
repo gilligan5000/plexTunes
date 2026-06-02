@@ -6,6 +6,8 @@ import type {
   MediaLibrarySection,
   MediaLibraryBundle,
   MediaServerConfig,
+  MediaPlaylist,
+  MediaPlaylistTrack,
   ProgressCallback,
 } from './types';
 import { plexFetch, testPlexConnection, getMusicLibrarySections } from '@/lib/plex';
@@ -104,6 +106,43 @@ export class PlexAdapter implements MediaServerAdapter {
     });
 
     return { artists, albums, tracks };
+  }
+
+  async getPlaylists(): Promise<MediaPlaylist[]> {
+    try {
+      const data = await plexFetch(this.config.serverUrl, this.config.token, '/playlists?type=15&playlistType=audio');
+      const items = data?.MediaContainer?.Metadata ?? [];
+      return items.map((p: any) => ({
+        id: String(p?.ratingKey ?? ''),
+        title: p?.title ?? 'Untitled',
+        trackCount: p?.leafCount ?? 0,
+        thumb: p?.composite ?? p?.thumb ?? null,
+      }));
+    } catch (e: any) {
+      console.error('Plex getPlaylists error:', e?.message);
+      return [];
+    }
+  }
+
+  async getPlaylistTracks(playlistId: string): Promise<MediaPlaylistTrack[]> {
+    try {
+      const data = await plexFetch(this.config.serverUrl, this.config.token, `/playlists/${playlistId}/items`);
+      const items = data?.MediaContainer?.Metadata ?? [];
+      return items.map((t: any) => {
+        const rk = String(t?.ratingKey ?? '');
+        return {
+          id: `track-${rk}`,
+          title: t?.title ?? 'Unknown',
+          artistName: t?.grandparentTitle ?? '',
+          albumTitle: t?.parentTitle ?? '',
+          duration: t?.duration ?? null,
+          thumb: t?.thumb ?? t?.parentThumb ?? null,
+        };
+      });
+    } catch (e: any) {
+      console.error('Plex getPlaylistTracks error:', e?.message);
+      return [];
+    }
   }
 
   async fetchImage(thumb: string, width: number, height: number): Promise<Response> {
