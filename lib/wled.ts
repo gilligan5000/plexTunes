@@ -113,6 +113,20 @@ export function formatTrackText(template: string, tokens: TrackTokens): string {
 
 /* ─── Segment builders ─── */
 
+/**
+ * Build a WLED segment payload for a matrix / scrolling-text output.
+ *
+ * Compatibility notes (WLED v16):
+ * • The `n` (segment name) field is the text source for the Scrolling Text effect.
+ *   v16 raised the segment name limit; we cap at 64 chars for broad compat.
+ * • Effect IDs shifted in v16 — the UI detects the correct ID by name from the
+ *   probed effects list. The ID stored in the DB should always be valid for the
+ *   firmware version running on that device.
+ * • Custom sliders (c1/c2/c3/o1) remain the same for Scrolling Text in v16:
+ *   c1=Trail, c2=Font Size, c3=Y Offset, o1=Rotate.
+ * • v16 adds custom font support (configured in WLED UI), palette editor, and
+ *   the PixelForge tool — these are device-side features that don't affect our API.
+ */
 export function buildMatrixSeg(opts: {
   segmentId: number;
   text: string;
@@ -129,7 +143,7 @@ export function buildMatrixSeg(opts: {
   const seg: Record<string, any> = {
     id: opts.segmentId,
     on: true,
-    n: opts.text.slice(0, 64),   // WLED caps segment names
+    n: opts.text.slice(0, 64),   // WLED segment name (text source for Scrolling Text)
     fx: opts.effectId,
     sx: opts.speed,
     ix: opts.intensity,

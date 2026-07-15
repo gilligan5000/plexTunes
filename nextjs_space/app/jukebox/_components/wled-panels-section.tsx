@@ -126,9 +126,23 @@ type PlaylistStep = {
   option1?: boolean;
 };
 
-/** Effect IDs that use the scrolling text renderer and support c1/c2/c3/o1 */
-const SCROLLING_TEXT_EFFECTS = new Set([122, 165]);
-function isScrollingTextEffect(effectId: number) { return SCROLLING_TEXT_EFFECTS.has(effectId); }
+/**
+ * Effect IDs that use the scrolling text renderer and support c1/c2/c3/o1.
+ * WLED v16 shifted many effect IDs — we keep legacy fallbacks (122, 165) but
+ * the primary detection is now name-based via findScrollingTextIds().
+ */
+const LEGACY_SCROLLING_TEXT_IDS = new Set([122, 165]);
+
+/** Scan a probed effects list for entries whose name contains "Scrolling Text" or "Text" effect. */
+function findScrollingTextIds(effectsList: string[]): Set<number> {
+  const ids = new Set<number>();
+  effectsList.forEach((name, idx) => {
+    const lower = (name ?? '').toLowerCase();
+    if (lower.includes('scrolling text') || lower === 'scroll text') ids.add(idx);
+  });
+  // If probe didn't find any (e.g. no probe yet), fall back to legacy IDs
+  return ids.size > 0 ? ids : LEGACY_SCROLLING_TEXT_IDS;
+}
 
 function parsePlaylist(json: string | null | undefined): PlaylistStep[] {
   if (!json) return [];
@@ -150,6 +164,49 @@ const AUDIO_REACTIVE_HINTS: Array<{ id: number; label: string }> = [
   { id: 149, label: 'Gravcenter (AR)' },
   { id: 150, label: 'Noisefire (AR)' },
 ];
+
+// WLED v16 Particle System effects (1D) — great for strips and ambient lighting
+const PS_1D_EFFECTS: Array<{ id: number; label: string }> = [
+  { id: 0, label: 'PS DripDrop' },
+  { id: 0, label: 'PS Fireworks 1D' },
+  { id: 0, label: 'PS Sparkler' },
+  { id: 0, label: 'PS Fire 1D' },
+  { id: 0, label: 'PS Sonic Stream (AR)' },
+  { id: 0, label: 'PS Sonic Boom (AR)' },
+  { id: 0, label: 'PS GEQ 1D (AR)' },
+  { id: 0, label: 'PS Starburst' },
+  { id: 0, label: 'PS Chase' },
+  { id: 0, label: 'PS Spring' },
+];
+
+// WLED v16 Particle System effects (2D) — for matrix panels
+const PS_2D_EFFECTS: Array<{ id: number; label: string }> = [
+  { id: 0, label: 'PS Fire' },
+  { id: 0, label: 'PS Waterfall' },
+  { id: 0, label: 'PS Vortex' },
+  { id: 0, label: 'PS Fireworks' },
+  { id: 0, label: 'PS Volcano' },
+  { id: 0, label: 'PS Galaxy' },
+  { id: 0, label: 'PS Ghost Rider' },
+  { id: 0, label: 'PS GEQ Nova (AR)' },
+  { id: 0, label: 'PS GEQ 2D (AR)' },
+  { id: 0, label: 'PS Blobs' },
+];
+
+/**
+ * Resolve PS effect hints against an actual effects list from the device.
+ * Since v16 PS IDs vary by build, we match by name. Falls back to the
+ * static hint list (with id=0 indicating "not available") when no probe data.
+ */
+function resolvePSEffects(hints: Array<{ id: number; label: string }>, effectsList: string[]): Array<{ id: number; label: string }> {
+  if (effectsList.length === 0) return [];
+  return hints.map(h => {
+    // Strip trailing " (AR)" for matching against the effects list
+    const searchName = h.label.replace(/\s*\(AR\)$/, '').trim().toLowerCase();
+    const idx = effectsList.findIndex(n => (n ?? '').toLowerCase().includes(searchName));
+    return idx >= 0 ? { id: idx, label: `${effectsList[idx]}` } : null;
+  }).filter(Boolean) as Array<{ id: number; label: string }>;
+}
 
 function StatusDot({ inst }: { inst: Instance }) {
   const now = Date.now();
@@ -635,6 +692,14 @@ function OutputCard(props: OutputCardProps) {
   const isMatrix = props.outputType === 'matrix';
   const typeLabel = isMatrix ? '2D Text Matrix' : 'LED Strip';
 
+  // Dynamically detect scrolling text effect IDs from the probed effects list
+  const scrollingTextIds = findScrollingTextIds(props.effectsList);
+  const isScrollingTextEffect = (effectId: number) => scrollingTextIds.has(effectId);
+
+  // Resolve particle system effects from the probed effects list
+  const ps1dResolved = resolvePSEffects(PS_1D_EFFECTS, props.effectsList);
+  const ps2dResolved = resolvePSEffects(PS_2D_EFFECTS, props.effectsList);
+
   return (
     <div className="rounded-lg bg-background/40 border border-border/20 p-3">
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -689,7 +754,14 @@ function OutputCard(props: OutputCardProps) {
               ? props.effectsList.map((name, i) => <option key={i} value={i}>{i}: {name}</option>)
               : isMatrix
                 ? <option value={165}>165: Scrolling Text</option>
-                : AUDIO_REACTIVE_HINTS.map(o => <option key={o.id} value={o.id}>{o.id}: {o.label}</option>)
+                : (
+                  <>
+                    {AUDIO_REACTIVE_HINTS.map(o => <option key={`ar-${o.id}`} value={o.id}>{o.id}: {o.label}</option>)}
+                    <optgroup label="── Particle System (v16+) ──">
+                      {PS_1D_EFFECTS.filter(o => o.id > 0).map(o => <option key={`ps1d-${o.id}`} value={o.id}>{o.id}: {o.label}</option>)}
+                    </optgroup>
+                  </>
+                )
             }
           </select>
         </label>
@@ -811,10 +883,22 @@ function OutputCard(props: OutputCardProps) {
         )}
       </div>
 
+      {/* v16 Particle System effects — shown when probed effects include PS entries */}
+      {!isMatrix && (ps1dResolved.length > 0 || ps2dResolved.length > 0) && (
+        <div className="mt-2 p-2 rounded-lg bg-purple-500/5 border border-purple-500/20">
+          <p className="text-[10px] text-purple-300 mb-1 font-semibold">✨ Particle System effects detected (WLED v16+)</p>
+          <p className="text-[10px] text-muted-foreground mb-1.5">
+            Select one from the Effect dropdown above. PS effects are physics-based and look more organic.
+            {ps1dResolved.length > 0 && ` 1D: ${ps1dResolved.map(e => e.label).join(', ')}.`}
+          </p>
+        </div>
+      )}
+
       {/* Effect Playlist */}
       <EffectPlaylistEditor
         steps={props.playlist}
         effectsList={props.effectsList}
+        isScrollingTextEffect={isScrollingTextEffect}
         onChange={(steps) => props.onChange({ playlist: steps })}
       />
     </div>
@@ -904,13 +988,17 @@ function WledColorPicker(props: { color: string; onChange: (c: string) => void; 
 function EffectPlaylistEditor(props: {
   steps: PlaylistStep[];
   effectsList: string[];
+  isScrollingTextEffect: (effectId: number) => boolean;
   onChange: (steps: PlaylistStep[]) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasSteps = props.steps.length > 0;
 
   function addStep() {
-    props.onChange([...props.steps, { effectId: 122, duration: 15, text: '{title}' }]);
+    // Find scrolling text effect ID from probed effects, or fall back to legacy 122
+    const scrollTextIds = findScrollingTextIds(props.effectsList);
+    const defaultEffectId = scrollTextIds.size > 0 ? [...scrollTextIds][0] : 122;
+    props.onChange([...props.steps, { effectId: defaultEffectId, duration: 15, text: '{title}' }]);
   }
 
   function removeStep(i: number) {
@@ -1028,7 +1116,7 @@ function EffectPlaylistEditor(props: {
                 </div>
 
                 {/* Text input — only for scrolling text effects */}
-                {isScrollingTextEffect(step.effectId) && (
+                {props.isScrollingTextEffect(step.effectId) && (
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-1 text-[10px] cursor-pointer select-none">
                       <input type="checkbox" checked={isText} onChange={() => toggleTextStep(i)} className="accent-primary" />
@@ -1077,7 +1165,7 @@ function EffectPlaylistEditor(props: {
                   </div>
                   {/* Extra sliders for scrolling text effects */}
                   {/* WLED API: c1=Trail, c2=Font Size, c3=Y Offset (0-31), o1=Rotate */}
-                  {isScrollingTextEffect(step.effectId) && (
+                  {props.isScrollingTextEffect(step.effectId) && (
                     <>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-muted-foreground w-14">Trail</span>
