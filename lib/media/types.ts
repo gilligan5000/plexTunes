@@ -72,4 +72,9 @@ export interface MediaPlaylistTrack {
 }
 
 // Progress callback invoked during long-running sync/fetch operations
+/** Strip the "track-" / "artist-" / "album-" prefix from a cached ID to get the raw media server key. */
+export function stripIdPrefix(cachedId: string): string {
+  return cachedId.replace(/^(track|artist|album)-/, '');
+}
+
 export type ProgressCallback = (pct: number, message: string) => Promise<void> | void;

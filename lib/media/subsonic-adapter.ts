@@ -52,6 +52,22 @@ export class SubsonicAdapter implements MediaServerAdapter {
     return body as T;
   }
 
+  async createPlaylist(name: string, trackIds: string[]): Promise<string> {
+    // Subsonic createPlaylist uses GET with multiple songId params.
+    const params = this.authParams();
+    params.set('name', name);
+    for (const id of trackIds) params.append('songId', id);
+    const url = `${this.config.serverUrl}/rest/createPlaylist?${params}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Subsonic createPlaylist HTTP ${res.status}`);
+    const data = await res.json();
+    const body = data?.['subsonic-response'];
+    if (body?.status !== 'ok') {
+      throw new Error(`Subsonic createPlaylist: ${body?.error?.message ?? 'Unknown error'}`);
+    }
+    return body?.playlist?.id ?? '';
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       await this.ssGet('ping');

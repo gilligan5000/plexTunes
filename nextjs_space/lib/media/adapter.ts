@@ -37,6 +37,10 @@ export interface MediaServerAdapter {
   // Returns track details for a specific playlist.
   getPlaylistTracks(playlistId: string): Promise<MediaPlaylistTrack[]>;
 
+  // Creates a playlist on the media server from a list of CachedTrack IDs.
+  // Returns the server-side playlist ID on success.
+  createPlaylist(name: string, trackIds: string[]): Promise<string>;
+
   // Returns a fetch() Response object for an image. The caller pipes the body back to the client.
   fetchImage(thumb: string, width: number, height: number): Promise<Response>;
 

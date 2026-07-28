@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Disc3, Play, Loader2, Music2, Plus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Disc3, Play, Loader2, Music2, Plus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePlayer, TrackInfo } from '@/lib/player-context';
 import type { ViewType } from './jukebox-shell';
@@ -19,8 +19,8 @@ interface MixesViewProps {
 }
 
 /* ── Mix Card (matches station card styling) ── */
-function MixCard({ mix, onPlay, onEdit, onDelete, isPlaying, cardSize, stationNames, artistThumbs, stationArtMap }: {
-  mix: any; onPlay: () => void; onEdit: () => void; onDelete: () => void;
+function MixCard({ mix, onPlay, onEdit, onDelete, onExport, isPlaying, exporting, cardSize, stationNames, artistThumbs, stationArtMap }: {
+  mix: any; onPlay: () => void; onEdit: () => void; onDelete: () => void; onExport: () => void; exporting?: boolean;
   isPlaying: boolean; cardSize: number; stationNames: Record<string, string>;
   artistThumbs: Record<string, string | null>;
   stationArtMap: Record<string, string[]>;
@@ -91,6 +91,9 @@ function MixCard({ mix, onPlay, onEdit, onDelete, isPlaying, cardSize, stationNa
         </div>
       </button>
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        <button onClick={(e) => { e.stopPropagation(); onExport(); }} disabled={exporting} className="p-1.5 rounded-full bg-black/60 hover:bg-green-600/80 text-white transition-colors disabled:opacity-50" title="Export to server">
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+        </button>
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors">
           <Pencil className="w-3.5 h-3.5" />
         </button>
@@ -108,6 +111,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [loading, setLoading] = useState(true);
   const [playingMix, setPlayingMix] = useState<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [stations, setStations] = useState<any[]>([]);
   const stationArtMap = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -264,6 +268,19 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
       toast.error('Failed to load mix tracks');
     }
     setPlayingMix(null);
+  };
+
+  const handleExport = async (mix: any) => {
+    setExportingId(mix.id);
+    try {
+      const res = await fetch(`/api/mixes/${mix.id}/export`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Export failed');
+      toast.success(`Exported "${mix.name}" → ${data.trackCount} tracks`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Export failed');
+    }
+    setExportingId(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -640,6 +657,8 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                       onPlay={() => handlePlay(mix)}
                       onEdit={() => startEdit(mix)}
                       onDelete={() => handleDelete(mix.id)}
+                      onExport={() => handleExport(mix)}
+                      exporting={exportingId === mix.id}
                       isPlaying={playingMix === mix.id}
                       cardSize={cardSize}
                       stationNames={stationNames}

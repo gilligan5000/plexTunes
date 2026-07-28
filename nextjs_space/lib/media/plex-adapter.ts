@@ -10,6 +10,7 @@ import type {
   MediaPlaylistTrack,
   ProgressCallback,
 } from './types';
+import { stripIdPrefix } from './types';
 import { plexFetch, testPlexConnection, getMusicLibrarySections } from '@/lib/plex';
 
 const PAGE_SIZE = 100;
@@ -143,6 +144,37 @@ export class PlexAdapter implements MediaServerAdapter {
       console.error('Plex getPlaylistTracks error:', e?.message);
       return [];
     }
+  }
+
+  async createPlaylist(name: string, trackIds: string[]): Promise<string> {
+    const { serverUrl, token } = this.config;
+    const machineId = await this.getMachineIdentifier();
+    // Plex expects a URI list: server://<machineId>/com.plexapp.plugins.library/library/metadata/<rk1>,<rk2>,...
+    const rawKeys = trackIds.map(id => stripIdPrefix(id));
+    const uri = `server://${machineId}/com.plexapp.plugins.library/library/metadata/${rawKeys.join(',')}`;
+    const params = new URLSearchParams({
+      type: 'audio',
+      title: name,
+      uri,
+      'X-Plex-Token': token,
+    });
+    const res = await fetch(`${serverUrl}/playlists?${params}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'X-Plex-Client-Identifier': 'plex-jukebox-app',
+        'X-Plex-Product': 'Plex Jukebox',
+      },
+    });
+    if (!res.ok) throw new Error(`Plex create playlist error: ${res.status}`);
+    const data = await res.json();
+    return String(data?.MediaContainer?.Metadata?.[0]?.ratingKey ?? '');
+  }
+
+  /** Get the machine identifier for this Plex server (needed for playlist URIs). */
+  private async getMachineIdentifier(): Promise<string> {
+    const data = await plexFetch(this.config.serverUrl, this.config.token, '/');
+    return data?.MediaContainer?.machineIdentifier ?? '';
   }
 
   async fetchImage(thumb: string, width: number, height: number): Promise<Response> {

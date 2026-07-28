@@ -206,6 +206,18 @@ export class JellyfinAdapter implements MediaServerAdapter {
     return fetch(url, { headers: this.authHeaders() });
   }
 
+  async createPlaylist(name: string, trackIds: string[]): Promise<string> {
+    const url = `${this.config.serverUrl}/Playlists`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Name: name, Ids: trackIds, MediaType: 'Audio' }),
+    });
+    if (!res.ok) throw new Error(`Jellyfin createPlaylist error ${res.status}`);
+    const data = await res.json();
+    return data?.Id ?? '';
+  }
+
   async fetchStream(mediaKey: string, rangeHeader?: string | null): Promise<Response> {
     // Universal audio endpoint - lets Jellyfin pick the best container.
     // `static=true` would force original file; we let Jellyfin handle it for broad client compatibility.
