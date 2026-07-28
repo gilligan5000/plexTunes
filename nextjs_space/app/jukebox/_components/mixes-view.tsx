@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Disc3, Play, Loader2, Music2, Plus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
+import { Disc3, Play, Loader2, Music2, Plus, Minus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePlayer, TrackInfo } from '@/lib/player-context';
 import type { ViewType } from './jukebox-shell';
@@ -127,7 +127,25 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const artistScrollRef = useRef<HTMLDivElement>(null);
   const artistContainerRef = useRef<HTMLDivElement>(null);
   const [cardSize, setCardSize] = useState(200);
-  const [artistItemSize, setArtistItemSize] = useState(100);
+  // User-controlled artist icon size (persisted). artistGridRows is derived from it + available height.
+  const [artistIconSize, setArtistIconSize] = useState(110);
+  const [artistGridRows, setArtistGridRows] = useState(4);
+  const ARTIST_ICON_MIN = 60;
+  const ARTIST_ICON_MAX = 260;
+  const ARTIST_ICON_STEP = 24;
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('mixArtistIconSize');
+      if (saved) { const n = parseInt(saved, 10); if (!isNaN(n)) setArtistIconSize(Math.min(ARTIST_ICON_MAX, Math.max(ARTIST_ICON_MIN, n))); }
+    } catch {}
+  }, []);
+  const adjustArtistIcon = (delta: number) => {
+    setArtistIconSize(prev => {
+      const next = Math.min(ARTIST_ICON_MAX, Math.max(ARTIST_ICON_MIN, prev + delta));
+      try { window.localStorage.setItem('mixArtistIconSize', String(next)); } catch {}
+      return next;
+    });
+  };
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -238,31 +256,29 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     return () => ro.disconnect();
   }, [mixes, stationRows, fillPct]);
 
-  // Artist grid sizing for editor — match artist page fill logic
-  // Use a ref to prevent infinite resize loops (ResizeObserver → setState → re-render → resize → ...)
-  const lastArtistSizeRef = useRef(0);
+  // Artist grid: derive how many rows fit from the user-chosen icon size and the
+  // available height. Bigger icons -> fewer rows (grid scrolls horizontally).
+  const lastRowsRef = useRef(0);
   useEffect(() => {
-    const calcArtistSize = () => {
+    const calcRows = () => {
       const container = artistScrollRef.current;
       if (!container) return;
       const available = container.clientHeight;
       if (available < 10) return; // container not yet laid out
-      const gap = 12;
-      const labelHeight = 28; // name text below icon (match artists-view)
-      const rows = artistRowsProp;
-      const totalGaps = (rows - 1) * gap;
-      const perRow = Math.max(40, Math.floor(((available - totalGaps) * (mixEditorFillPct / 100) / rows) - labelHeight));
-      // Only update if meaningfully different to break resize loops
-      if (Math.abs(perRow - lastArtistSizeRef.current) > 2) {
-        lastArtistSizeRef.current = perRow;
-        setArtistItemSize(perRow);
+      const gap = 8;
+      const labelHeight = 20; // name text below icon
+      const rowH = artistIconSize + labelHeight + gap;
+      const rows = Math.max(1, Math.floor((available + gap) / rowH));
+      if (rows !== lastRowsRef.current) {
+        lastRowsRef.current = rows;
+        setArtistGridRows(rows);
       }
     };
-    calcArtistSize();
-    const ro = new ResizeObserver(calcArtistSize);
+    calcRows();
+    const ro = new ResizeObserver(calcRows);
     if (artistScrollRef.current) ro.observe(artistScrollRef.current);
     return () => ro.disconnect();
-  }, [editing, mixEditorFillPct, artistRowsProp]);
+  }, [editing, artistIconSize]);
 
   const handlePlay = async (mix: any) => {
     setPlayingMix(mix.id);
@@ -450,8 +466,9 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
 
   // Build columns for artist grid (4 rows)
   const artistColumns: any[][] = [];
-  for (let i = 0; i < filteredArtists.length; i += 4) {
-    artistColumns.push(filteredArtists.slice(i, i + 4));
+  const rowsPerColumn = Math.max(1, artistGridRows);
+  for (let i = 0; i < filteredArtists.length; i += rowsPerColumn) {
+    artistColumns.push(filteredArtists.slice(i, i + rowsPerColumn));
   }
 
   // ── Editor view ──
@@ -487,16 +504,37 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
             <label className="text-sm font-medium mb-2 flex items-center gap-2">
               <Radio className="w-4 h-4 text-primary" /> Stations
             </label>
-            <div className="flex flex-wrap gap-2">
-              {stations.map((s: any) => (
-                <button key={s.id} onClick={() => toggleStation(s.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                    formStationIds.includes(s.id) ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80 text-muted-foreground'
-                  }`}>
-                  {formStationIds.includes(s.id) && <Check className="w-3 h-3 inline mr-1" />}
-                  {s.name}
-                </button>
-              ))}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-3 max-h-[200px] overflow-y-auto pr-1">
+              {stations.map((s: any) => {
+                const selected = formStationIds.includes(s.id);
+                const art = (stationArtMap[s.id] ?? [])[0];
+                return (
+                  <button key={s.id} onClick={() => toggleStation(s.id)}
+                    className="group flex flex-col items-center gap-1.5 focus:outline-none">
+                    <div className={`relative w-full aspect-square rounded-lg overflow-hidden bg-secondary transition-all ${
+                      selected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : 'ring-1 ring-border/30 group-hover:ring-primary/50'
+                    }`}>
+                      {art ? (
+                        <PlexImage thumb={art} alt={s.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Radio className="w-6 h-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      {selected && (
+                        <div className="absolute inset-0 bg-primary/40 flex items-center justify-center">
+                          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                            <Check className="w-4 h-4 text-primary-foreground" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[11px] leading-tight text-center line-clamp-2 ${
+                      selected ? 'text-primary font-medium' : 'text-muted-foreground'
+                    }`}>{s.name}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -517,6 +555,17 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 <Users className="w-4 h-4 text-primary" /> Emphasized Artists
                 {formArtistIds.length > 0 && <span className="text-xs text-primary">({formArtistIds.length} selected)</span>}
               </label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground mr-0.5">Icon size</span>
+                <button onClick={() => adjustArtistIcon(-ARTIST_ICON_STEP)} disabled={artistIconSize <= ARTIST_ICON_MIN}
+                  title="Smaller" className="w-6 h-6 rounded-md bg-secondary hover:bg-secondary/70 flex items-center justify-center transition-colors disabled:opacity-40">
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => adjustArtistIcon(ARTIST_ICON_STEP)} disabled={artistIconSize >= ARTIST_ICON_MAX}
+                  title="Larger" className="w-6 h-6 rounded-md bg-secondary hover:bg-secondary/70 flex items-center justify-center transition-colors disabled:opacity-40">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
             {/* Search */}
             <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)}
@@ -546,7 +595,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
             ) : (
               <div className="flex-1 flex items-center gap-1 min-h-0">
                 <button
-                  onClick={() => { const el = artistContainerRef.current; if (el) el.scrollBy({ left: -(artistItemSize + 8) * 3, behavior: 'smooth' }); }}
+                  onClick={() => { const el = artistContainerRef.current; if (el) el.scrollBy({ left: -(artistIconSize + 8) * 3, behavior: 'smooth' }); }}
                   className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary/60 hover:bg-secondary flex items-center justify-center transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -554,14 +603,14 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 <div ref={artistContainerRef} className="flex-1 self-stretch overflow-x-auto overflow-y-hidden scrollbar-none min-h-0">
                   <div className="flex gap-2 h-full items-center">
                     {artistColumns.map((col, ci) => (
-                      <div key={ci} className="flex flex-col gap-2 flex-shrink-0" style={{ width: artistItemSize }}>
+                      <div key={ci} className="flex flex-col gap-2 flex-shrink-0" style={{ width: artistIconSize }}>
                         {col.map((artist: any) => {
                           const selected = formArtistIds.includes(artist.id);
                           return (
                             <button key={artist.id} onClick={() => toggleArtist(artist.id)}
                               className={`group text-center flex-shrink-0 relative ${selected ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}>
                               <div className="relative rounded-full overflow-hidden bg-secondary mx-auto transition-all"
-                                style={{ width: artistItemSize, height: artistItemSize }}>
+                                style={{ width: artistIconSize, height: artistIconSize }}>
                                 <PlexImage thumb={artist?.thumb} alt={artist?.name ?? ''} />
                                 {selected && (
                                   <div className="absolute inset-0 bg-primary/40 flex items-center justify-center">
@@ -579,7 +628,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                   </div>
                 </div>
                 <button
-                  onClick={() => { const el = artistContainerRef.current; if (el) el.scrollBy({ left: (artistItemSize + 8) * 3, behavior: 'smooth' }); }}
+                  onClick={() => { const el = artistContainerRef.current; if (el) el.scrollBy({ left: (artistIconSize + 8) * 3, behavior: 'smooth' }); }}
                   className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary/60 hover:bg-secondary flex items-center justify-center transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />
