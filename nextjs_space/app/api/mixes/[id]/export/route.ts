@@ -58,9 +58,26 @@ async function resolveMixTracks(mix: any): Promise<string[]> {
     }
   }
 
-  // Artist tracks
+  // Artist tracks (optionally restricted to specific albums)
   if (mix.artistIds?.length > 0) {
-    const artistWhere: any = { artistId: { in: mix.artistIds }, banned: false };
+    const albumIds: string[] = mix.albumIds ?? [];
+    let orConditions: any[];
+    if (albumIds.length > 0) {
+      const selAlbums = await prisma.cachedAlbum.findMany({
+        where: { id: { in: albumIds } },
+        select: { id: true, artistId: true },
+      });
+      const albumsByArtist: Record<string, string[]> = {};
+      for (const a of selAlbums) (albumsByArtist[a.artistId] ??= []).push(a.id);
+      orConditions = mix.artistIds.map((id: string) =>
+        albumsByArtist[id]?.length
+          ? { artistId: id, albumId: { in: albumsByArtist[id] } }
+          : { artistId: id }
+      );
+    } else {
+      orConditions = mix.artistIds.map((id: string) => ({ artistId: id }));
+    }
+    const artistWhere: any = { OR: orConditions, banned: false };
     if (mix.popularOnly) artistWhere.popularity = { gte: 1 };
     const artistTracks = await prisma.cachedTrack.findMany({ where: artistWhere, include, take: 500 });
     allTracks.push(...artistTracks);

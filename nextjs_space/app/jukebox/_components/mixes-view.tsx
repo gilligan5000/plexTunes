@@ -133,8 +133,15 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [formName, setFormName] = useState('');
   const [formStationIds, setFormStationIds] = useState<string[]>([]);
   const [formArtistIds, setFormArtistIds] = useState<string[]>([]);
+  const [formAlbumIds, setFormAlbumIds] = useState<string[]>([]);
   const [formPopularOnly, setFormPopularOnly] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Album picker state (per-artist album selection)
+  const [albumPickerArtist, setAlbumPickerArtist] = useState<any | null>(null);
+  const [artistAlbums, setArtistAlbums] = useState<any[]>([]);
+  const [albumsLoading, setAlbumsLoading] = useState(false);
+  const [albumArtistMap, setAlbumArtistMap] = useState<Record<string, string>>({});
 
   // Import playlists state
   const [importOpen, setImportOpen] = useState(false);
@@ -177,6 +184,26 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
         setArtistThumbs(tMap);
       }).catch(() => {});
   }, [mixes]);
+
+  // When editing a mix that already has album restrictions, build the album→artist
+  // map up front so the chips can show accurate album counts.
+  useEffect(() => {
+    if (editing === null || editing === 'new') return;
+    const albumIds: string[] = editing.albumIds ?? [];
+    const artistIds: string[] = editing.artistIds ?? [];
+    if (albumIds.length === 0 || artistIds.length === 0) return;
+    Promise.all(artistIds.map((aid: string) =>
+      fetch(`/api/artists/${aid}`).then(r => r.json())
+        .then(d => ({ aid, albums: d?.artist?.cachedAlbums ?? [] }))
+        .catch(() => ({ aid, albums: [] }))
+    )).then(results => {
+      setAlbumArtistMap(prev => {
+        const next = { ...prev };
+        results.forEach(({ aid, albums }) => albums.forEach((al: any) => { next[al.id] = aid; }));
+        return next;
+      });
+    });
+  }, [editing]);
 
   // Load all artists for editor
   useEffect(() => {
@@ -296,6 +323,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormName(mix.name ?? '');
     setFormStationIds(mix.stationIds ?? []);
     setFormArtistIds(mix.artistIds ?? []);
+    setFormAlbumIds(mix.albumIds ?? []);
     setFormPopularOnly(mix.popularOnly ?? true);
     setArtistSearch('');
   };
@@ -305,6 +333,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormName('');
     setFormStationIds([]);
     setFormArtistIds([]);
+    setFormAlbumIds([]);
     setFormPopularOnly(true);
     setArtistSearch('');
   };
@@ -313,7 +342,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     if (!formName.trim()) { toast.error('Name is required'); return; }
     setSaving(true);
     try {
-      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, popularOnly: formPopularOnly };
+      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, albumIds: formAlbumIds, popularOnly: formPopularOnly };
       if (editing === 'new') {
         const res = await fetch('/api/mixes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await res?.json?.();
@@ -376,7 +405,42 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   };
 
   const toggleArtist = (id: string) => {
-    setFormArtistIds(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]);
+    setFormArtistIds(prev => {
+      if (prev.includes(id)) {
+        // Deselecting an artist also drops any of their album restrictions we know about
+        setFormAlbumIds(albums => albums.filter(albId => albumArtistMap[albId] !== id));
+        return prev.filter(a => a !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  const openAlbumPicker = async (artist: any) => {
+    setAlbumPickerArtist(artist);
+    setAlbumsLoading(true);
+    setArtistAlbums([]);
+    try {
+      const res = await fetch(`/api/artists/${artist.id}`);
+      const data = await res.json();
+      const albums = data?.artist?.cachedAlbums ?? [];
+      setArtistAlbums(albums);
+      // Remember which artist each album belongs to (for chip counts + cleanup)
+      setAlbumArtistMap(prev => {
+        const next = { ...prev };
+        albums.forEach((al: any) => { next[al.id] = artist.id; });
+        return next;
+      });
+    } catch { setArtistAlbums([]); }
+    setAlbumsLoading(false);
+  };
+
+  const toggleAlbum = (albumId: string) => {
+    setFormAlbumIds(prev => prev.includes(albumId) ? prev.filter(a => a !== albumId) : [...prev, albumId]);
+  };
+
+  const clearArtistAlbums = () => {
+    const ids = new Set(artistAlbums.map((a: any) => a.id));
+    setFormAlbumIds(prev => prev.filter(id => !ids.has(id)));
   };
 
   // Filter artists for the grid
@@ -462,9 +526,12 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
               <div className="flex flex-wrap gap-1 mb-2 flex-shrink-0 max-h-16 overflow-y-auto">
                 {formArtistIds.map(id => {
                   const a = allArtists.find(ar => ar.id === id);
+                  const albumCount = formAlbumIds.filter(albId => albumArtistMap[albId] === id).length;
                   return (
                     <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px]">
                       {a?.name ?? id}
+                      {albumCount > 0 && <span className="text-[9px] opacity-80">· {albumCount} album{albumCount > 1 ? 's' : ''}</span>}
+                      <button onClick={() => openAlbumPicker(a ?? { id })} title="Choose albums" className={`transition-colors ${albumCount > 0 ? 'text-white' : 'hover:text-white'}`}><Disc3 className="w-2.5 h-2.5" /></button>
                       <button onClick={() => toggleArtist(id)} className="hover:text-destructive"><X className="w-2.5 h-2.5" /></button>
                     </span>
                   );
@@ -519,6 +586,58 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 </button>
               </div>
             )}
+
+        {/* Album picker modal */}
+        {albumPickerArtist && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setAlbumPickerArtist(null)}>
+            <div onClick={e => e.stopPropagation()} className="bg-card border border-border/40 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+              <div className="flex items-start justify-between p-4 border-b border-border/30">
+                <div className="min-w-0 pr-2">
+                  <h3 className="text-base font-display font-bold flex items-center gap-2 truncate">
+                    <Disc3 className="w-4 h-4 text-primary flex-shrink-0" /> <span className="truncate">{albumPickerArtist.name ?? 'Albums'}</span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Pick specific albums to pull from — or leave all unselected to include the whole artist.</p>
+                </div>
+                <button onClick={() => setAlbumPickerArtist(null)} className="p-1.5 rounded-full hover:bg-secondary transition-colors flex-shrink-0"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3">
+                {albumsLoading ? (
+                  <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+                ) : artistAlbums.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Music2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No albums found for this artist</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {artistAlbums.map((al: any) => {
+                      const checked = formAlbumIds.includes(al.id);
+                      return (
+                        <button key={al.id} onClick={() => toggleAlbum(al.id)}
+                          className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left transition-colors ${checked ? 'bg-primary/15 ring-1 ring-primary/40' : 'hover:bg-secondary/60'}`}>
+                          <div className={`w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${checked ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
+                            {checked && <Check className="w-3 h-3 text-primary-foreground" />}
+                          </div>
+                          <div className="w-9 h-9 rounded overflow-hidden bg-secondary flex-shrink-0 relative">
+                            <PlexImage thumb={al?.thumb} alt={al?.title ?? ''} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{al?.title ?? 'Unknown album'}</p>
+                            {al?.year && <p className="text-xs text-muted-foreground">{al.year}</p>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between p-3 border-t border-border/30">
+                <button onClick={clearArtistAlbums} className="text-xs text-muted-foreground hover:text-foreground transition-colors">All albums</button>
+                <button onClick={() => setAlbumPickerArtist(null)} className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Done</button>
+              </div>
+            </div>
+          </div>
+        )}
           </div>
       </div>
     );

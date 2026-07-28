@@ -16,13 +16,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
-    const { name, stationIds, artistIds, popularOnly, imageUrl } = body ?? {};
+    const { name, stationIds, artistIds, albumIds, popularOnly, imageUrl } = body ?? {};
     const mix = await prisma.mix.update({
       where: { id: params.id },
       data: {
         ...(name !== undefined && { name }),
         ...(stationIds !== undefined && { stationIds }),
         ...(artistIds !== undefined && { artistIds }),
+        ...(albumIds !== undefined && { albumIds }),
         ...(popularOnly !== undefined && { popularOnly }),
         ...(imageUrl !== undefined && { imageUrl }),
       },

@@ -182,6 +182,7 @@ model Mix {
   name            String
   stationIds      String[] @default([])
   artistIds       String[] @default([])
+  albumIds        String[] @default([])
   popularOnly     Boolean  @default(true)
   imageUrl        String?
   createdAt       DateTime @default(now())

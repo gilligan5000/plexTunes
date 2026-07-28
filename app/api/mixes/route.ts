@@ -16,13 +16,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, stationIds, artistIds, popularOnly, imageUrl } = body ?? {};
+    const { name, stationIds, artistIds, albumIds, popularOnly, imageUrl } = body ?? {};
     if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
     const mix = await prisma.mix.create({
       data: {
         name,
         stationIds: stationIds ?? [],
         artistIds: artistIds ?? [],
+        albumIds: albumIds ?? [],
         popularOnly: popularOnly ?? true,
         imageUrl: imageUrl ?? null,
       },
