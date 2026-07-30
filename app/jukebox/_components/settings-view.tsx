@@ -626,6 +626,7 @@ export default function SettingsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ minPopularity: tuningMinPop }),
       });
+      try { localStorage.setItem('hitsMinPopularity', String(tuningMinPop)); } catch { /* ignore */ }
       const data = await res.json();
       setTuningPreview(data?.stations ?? []);
       setTuningStats(data?.stats ?? null);
@@ -634,8 +635,16 @@ export default function SettingsView({
     setRescanning(false);
   };
 
-  // Load preview on mount
-  useEffect(() => { fetchStationPreview(tuningMinPop); }, []);
+  // Load persisted min popularity from localStorage, then load preview on mount
+  useEffect(() => {
+    let initial = 40;
+    try {
+      const v = parseInt(localStorage.getItem('hitsMinPopularity') || '');
+      if (!isNaN(v)) initial = Math.min(80, Math.max(0, v));
+    } catch { /* ignore */ }
+    setTuningMinPop(initial);
+    fetchStationPreview(initial);
+  }, []);
 
   const handleAddStation = async () => {
     if (stationSaving) return;
@@ -1421,6 +1430,7 @@ export default function SettingsView({
               onChange={(e) => {
                 const val = parseInt(e.target.value);
                 setTuningMinPop(val);
+                try { localStorage.setItem('hitsMinPopularity', String(val)); } catch { /* ignore */ }
                 if (tuningTimerRef.current) clearTimeout(tuningTimerRef.current);
                 tuningTimerRef.current = setTimeout(() => fetchStationPreview(val), 400);
               }}
