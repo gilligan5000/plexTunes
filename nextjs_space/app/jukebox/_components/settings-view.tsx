@@ -626,7 +626,7 @@ export default function SettingsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ minPopularity: tuningMinPop }),
       });
-      try { localStorage.setItem('hitsMinPopularity', String(tuningMinPop)); } catch { /* ignore */ }
+      saveHitsMinPopularity(tuningMinPop);
       const data = await res.json();
       setTuningPreview(data?.stations ?? []);
       setTuningStats(data?.stats ?? null);
@@ -635,15 +635,38 @@ export default function SettingsView({
     setRescanning(false);
   };
 
-  // Load persisted min popularity from localStorage, then load preview on mount
+  // Load persisted min popularity (server first, then localStorage), then load preview on mount
   useEffect(() => {
-    let initial = 40;
-    try {
-      const v = parseInt(localStorage.getItem('hitsMinPopularity') || '');
-      if (!isNaN(v)) initial = Math.min(80, Math.max(0, v));
-    } catch { /* ignore */ }
-    setTuningMinPop(initial);
-    fetchStationPreview(initial);
+    let cancelled = false;
+    (async () => {
+      let initial = 40;
+      try {
+        const v = parseInt(localStorage.getItem('hitsMinPopularity') || '');
+        if (!isNaN(v)) initial = Math.min(80, Math.max(0, v));
+      } catch { /* ignore */ }
+      try {
+        const res = await fetch('/api/jukebox-settings');
+        const data = await res.json();
+        if (typeof data?.hitsMinPopularity === 'number') {
+          initial = Math.min(80, Math.max(0, data.hitsMinPopularity));
+          try { localStorage.setItem('hitsMinPopularity', String(initial)); } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+      if (cancelled) return;
+      setTuningMinPop(initial);
+      fetchStationPreview(initial);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist the hits min popularity to the server (shared with mix builder popular-only filter)
+  const saveHitsMinPopularity = useCallback((val: number) => {
+    try { localStorage.setItem('hitsMinPopularity', String(val)); } catch { /* ignore */ }
+    fetch('/api/jukebox-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hitsMinPopularity: val }),
+    }).catch(() => { /* ignore */ });
   }, []);
 
   const handleAddStation = async () => {
@@ -1430,9 +1453,8 @@ export default function SettingsView({
               onChange={(e) => {
                 const val = parseInt(e.target.value);
                 setTuningMinPop(val);
-                try { localStorage.setItem('hitsMinPopularity', String(val)); } catch { /* ignore */ }
                 if (tuningTimerRef.current) clearTimeout(tuningTimerRef.current);
-                tuningTimerRef.current = setTimeout(() => fetchStationPreview(val), 400);
+                tuningTimerRef.current = setTimeout(() => { fetchStationPreview(val); saveHitsMinPopularity(val); }, 400);
               }}
               className="flex-1 h-2 accent-primary"
             />

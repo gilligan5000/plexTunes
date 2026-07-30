@@ -107,6 +107,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
     }
 
+    // "Popular tracks only" uses the same min-popularity threshold set on the
+    // Settings page (Hits Station Min Popularity) so the mix builder toggle
+    // reflects the desired popularity rating rather than a fixed cutoff.
+    let hitsMinPop = 40;
+    try {
+      const s = await prisma.jukeboxSettings.findUnique({ where: { id: 'default' }, select: { hitsMinPopularity: true } });
+      if (typeof s?.hitsMinPopularity === 'number') hitsMinPop = s.hitsMinPopularity;
+    } catch { /* ignore */ }
+
     // Get tracks from emphasized artists (optionally restricted to specific albums).
     // Explicitly-selected albums bypass the "popular only" filter — hand-picking
     // an album is a direct request for those songs regardless of popularity.
@@ -137,7 +146,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
       if (plainArtistIds.length > 0) {
         const where: any = { artistId: { in: plainArtistIds }, banned: false };
-        if (mix.popularOnly) where.popularity = { gte: 1 };
+        if (mix.popularOnly) where.popularity = { gte: hitsMinPop };
         const t = await prisma.cachedTrack.findMany({ where, include: artInclude, take: 200 });
         artistTracks.push(...t);
       }

@@ -173,6 +173,7 @@ model JukeboxSettings {
   artistFillPct       Int      @default(70)
   mixFillPct          Int      @default(70)
   mixEditorFillPct    Int      @default(70)
+  hitsMinPopularity   Int      @default(40)
   sweetFades          Boolean  @default(false)
   updatedAt           DateTime @updatedAt
 }

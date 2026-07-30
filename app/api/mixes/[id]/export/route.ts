@@ -19,6 +19,15 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
   // diluted away in a size-targeted export.
   const emphasizedIds = new Set<string>();
 
+  // "Popular tracks only" uses the same min-popularity threshold set on the
+  // Settings page (Hits Station Min Popularity), so the mix builder toggle
+  // reflects the desired popularity rating rather than a fixed cutoff.
+  let hitsMinPop = 40;
+  try {
+    const s = await prisma.jukeboxSettings.findUnique({ where: { id: 'default' }, select: { hitsMinPopularity: true } });
+    if (typeof s?.hitsMinPopularity === 'number') hitsMinPop = s.hitsMinPopularity;
+  } catch { /* ignore */ }
+
   // Station tracks
   if (mix.stationIds?.length > 0) {
     const stations = await prisma.station.findMany({
@@ -94,7 +103,7 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
     // Whole-artist tracks: honor the popular-only toggle.
     if (plainArtistIds.length > 0) {
       const artistWhere: any = { artistId: { in: plainArtistIds }, banned: false };
-      if (mix.popularOnly) artistWhere.popularity = { gte: 1 };
+      if (mix.popularOnly) artistWhere.popularity = { gte: hitsMinPop };
       const artistTracks = await prisma.cachedTrack.findMany({ where: artistWhere, include, take: 500 });
       for (const t of artistTracks) emphasizedIds.add(t.id);
       allTracks.push(...artistTracks);
