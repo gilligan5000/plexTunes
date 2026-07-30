@@ -112,6 +112,11 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [playingMix, setPlayingMix] = useState<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  // Export config dialog
+  const [exportTarget, setExportTarget] = useState<any | null>(null);
+  const [exportMode, setExportMode] = useState<'all' | 'count' | 'hours'>('all');
+  const [exportCount, setExportCount] = useState(50);
+  const [exportHours, setExportHours] = useState(2);
   const [stations, setStations] = useState<any[]>([]);
   const stationArtMap = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -127,22 +132,36 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const artistScrollRef = useRef<HTMLDivElement>(null);
   const artistContainerRef = useRef<HTMLDivElement>(null);
   const [cardSize, setCardSize] = useState(200);
-  // User-controlled artist icon size (persisted). artistGridRows is derived from it + available height.
+  // User-controlled artist icon size AND row count (both persisted, both manual).
   const [artistIconSize, setArtistIconSize] = useState(110);
-  const [artistGridRows, setArtistGridRows] = useState(4);
+  const [artistGridRows, setArtistGridRows] = useState(3);
   const ARTIST_ICON_MIN = 60;
   const ARTIST_ICON_MAX = 260;
   const ARTIST_ICON_STEP = 24;
+  const ARTIST_ROWS_MIN = 1;
+  const ARTIST_ROWS_MAX = 8;
+  const ARTIST_LABEL_H = 16;
+  const ARTIST_ROW_GAP = 8;
+  const artistGridHeight = artistGridRows * (artistIconSize + ARTIST_LABEL_H) + Math.max(0, artistGridRows - 1) * ARTIST_ROW_GAP;
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem('mixArtistIconSize');
-      if (saved) { const n = parseInt(saved, 10); if (!isNaN(n)) setArtistIconSize(Math.min(ARTIST_ICON_MAX, Math.max(ARTIST_ICON_MIN, n))); }
+      const savedSize = window.localStorage.getItem('mixArtistIconSize');
+      if (savedSize) { const n = parseInt(savedSize, 10); if (!isNaN(n)) setArtistIconSize(Math.min(ARTIST_ICON_MAX, Math.max(ARTIST_ICON_MIN, n))); }
+      const savedRows = window.localStorage.getItem('mixArtistRows');
+      if (savedRows) { const n = parseInt(savedRows, 10); if (!isNaN(n)) setArtistGridRows(Math.min(ARTIST_ROWS_MAX, Math.max(ARTIST_ROWS_MIN, n))); }
     } catch {}
   }, []);
   const adjustArtistIcon = (delta: number) => {
     setArtistIconSize(prev => {
       const next = Math.min(ARTIST_ICON_MAX, Math.max(ARTIST_ICON_MIN, prev + delta));
       try { window.localStorage.setItem('mixArtistIconSize', String(next)); } catch {}
+      return next;
+    });
+  };
+  const adjustArtistRows = (delta: number) => {
+    setArtistGridRows(prev => {
+      const next = Math.min(ARTIST_ROWS_MAX, Math.max(ARTIST_ROWS_MIN, prev + delta));
+      try { window.localStorage.setItem('mixArtistRows', String(next)); } catch {}
       return next;
     });
   };
@@ -256,29 +275,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     return () => ro.disconnect();
   }, [mixes, stationRows, fillPct]);
 
-  // Artist grid: derive how many rows fit from the user-chosen icon size and the
-  // available height. Bigger icons -> fewer rows (grid scrolls horizontally).
-  const lastRowsRef = useRef(0);
-  useEffect(() => {
-    const calcRows = () => {
-      const container = artistScrollRef.current;
-      if (!container) return;
-      const available = container.clientHeight;
-      if (available < 10) return; // container not yet laid out
-      const gap = 8;
-      const labelHeight = 20; // name text below icon
-      const rowH = artistIconSize + labelHeight + gap;
-      const rows = Math.max(1, Math.floor((available + gap) / rowH));
-      if (rows !== lastRowsRef.current) {
-        lastRowsRef.current = rows;
-        setArtistGridRows(rows);
-      }
-    };
-    calcRows();
-    const ro = new ResizeObserver(calcRows);
-    if (artistScrollRef.current) ro.observe(artistScrollRef.current);
-    return () => ro.disconnect();
-  }, [editing, artistIconSize]);
+  // artistGridRows is now user-controlled (manual +/- buttons) and persisted.
 
   const handlePlay = async (mix: any) => {
     setPlayingMix(mix.id);
@@ -313,10 +310,24 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setPlayingMix(null);
   };
 
-  const handleExport = async (mix: any) => {
+  const openExport = (mix: any) => {
+    setExportMode('all');
+    setExportCount(50);
+    setExportHours(2);
+    setExportTarget(mix);
+  };
+
+  const handleExport = async () => {
+    const mix = exportTarget;
+    if (!mix) return;
+    const params = new URLSearchParams();
+    if (exportMode === 'count') params.set('limit', String(Math.max(1, exportCount)));
+    else if (exportMode === 'hours') params.set('minutes', String(Math.max(1, Math.round(exportHours * 60))));
+    setExportTarget(null);
     setExportingId(mix.id);
     try {
-      const res = await fetch(`/api/mixes/${mix.id}/export`, { method: 'POST' });
+      const qs = params.toString();
+      const res = await fetch(`/api/mixes/${mix.id}/export${qs ? `?${qs}` : ''}`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? 'Export failed');
       toast.success(`Exported "${mix.name}" → ${data.trackCount} tracks`);
@@ -474,7 +485,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   // ── Editor view ──
   if (editing !== null) {
     return (
-      <div className="flex-1 flex flex-col overflow-hidden p-4 gap-3">
+      <div className="flex-1 flex flex-col overflow-y-auto p-4 gap-3">
         <div className="flex items-center justify-between flex-shrink-0">
           <h2 className="text-lg font-display font-bold flex items-center gap-2">
             <Disc3 className="w-5 h-5 text-primary" />
@@ -504,7 +515,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
             <label className="text-sm font-medium mb-2 flex items-center gap-2">
               <Radio className="w-4 h-4 text-primary" /> Stations
             </label>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-3 max-h-[200px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-3">
               {stations.map((s: any) => {
                 const selected = formStationIds.includes(s.id);
                 const art = (stationArtMap[s.id] ?? [])[0];
@@ -548,8 +559,8 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
           </div>
         </div>
 
-        {/* Artist selection grid - fills ALL remaining space */}
-        <div ref={artistScrollRef} className="flex-1 flex flex-col min-h-0">
+        {/* Artist selection grid - fixed height driven by row count */}
+        <div ref={artistScrollRef} className="flex flex-col">
             <div className="flex items-center justify-between mb-1 flex-shrink-0">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" /> Emphasized Artists
@@ -563,6 +574,16 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 </button>
                 <button onClick={() => adjustArtistIcon(ARTIST_ICON_STEP)} disabled={artistIconSize >= ARTIST_ICON_MAX}
                   title="Larger" className="w-6 h-6 rounded-md bg-secondary hover:bg-secondary/70 flex items-center justify-center transition-colors disabled:opacity-40">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[11px] text-muted-foreground mr-0.5 ml-2">Rows</span>
+                <button onClick={() => adjustArtistRows(-1)} disabled={artistGridRows <= ARTIST_ROWS_MIN}
+                  title="Fewer rows" className="w-6 h-6 rounded-md bg-secondary hover:bg-secondary/70 flex items-center justify-center transition-colors disabled:opacity-40">
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[11px] text-muted-foreground w-3 text-center">{artistGridRows}</span>
+                <button onClick={() => adjustArtistRows(1)} disabled={artistGridRows >= ARTIST_ROWS_MAX}
+                  title="More rows" className="w-6 h-6 rounded-md bg-secondary hover:bg-secondary/70 flex items-center justify-center transition-colors disabled:opacity-40">
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -593,7 +614,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 <Loader2 className="w-6 h-6 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="flex-1 flex items-center gap-1 min-h-0">
+              <div className="flex items-center gap-1" style={{ height: artistGridHeight }}>
                 <button
                   onClick={() => { const el = artistContainerRef.current; if (el) el.scrollBy({ left: -(artistIconSize + 8) * 3, behavior: 'smooth' }); }}
                   className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary/60 hover:bg-secondary flex items-center justify-center transition-colors"
@@ -601,7 +622,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <div ref={artistContainerRef} className="flex-1 self-stretch overflow-x-auto overflow-y-hidden scrollbar-none min-h-0">
-                  <div className="flex gap-2 h-full items-center">
+                  <div className="flex gap-2 h-full items-start">
                     {artistColumns.map((col, ci) => (
                       <div key={ci} className="flex flex-col gap-2 flex-shrink-0" style={{ width: artistIconSize }}>
                         {col.map((artist: any) => {
@@ -825,7 +846,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                       onPlay={() => handlePlay(mix)}
                       onEdit={() => startEdit(mix)}
                       onDelete={() => handleDelete(mix.id)}
-                      onExport={() => handleExport(mix)}
+                      onExport={() => openExport(mix)}
                       exporting={exportingId === mix.id}
                       isPlaying={playingMix === mix.id}
                       cardSize={cardSize}
@@ -837,6 +858,49 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
                 </div>
               ));
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Export config dialog */}
+      {exportTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setExportTarget(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-card border border-border/40 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-start justify-between p-4 border-b border-border/30">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-base font-display font-bold flex items-center gap-2 truncate">
+                  <Upload className="w-4 h-4 text-primary flex-shrink-0" /> <span className="truncate">Export “{exportTarget.name}”</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Choose how large the exported playlist should be.</p>
+              </div>
+              <button onClick={() => setExportTarget(null)} className="p-1.5 rounded-full hover:bg-secondary transition-colors flex-shrink-0"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <label className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${exportMode === 'all' ? 'bg-primary/15 ring-1 ring-primary/40' : 'bg-secondary hover:bg-secondary/70'}`}>
+                <input type="radio" name="exportMode" checked={exportMode === 'all'} onChange={() => setExportMode('all')} className="accent-primary" />
+                <span className="text-sm">All matching tracks</span>
+              </label>
+              <label className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${exportMode === 'count' ? 'bg-primary/15 ring-1 ring-primary/40' : 'bg-secondary hover:bg-secondary/70'}`}>
+                <input type="radio" name="exportMode" checked={exportMode === 'count'} onChange={() => setExportMode('count')} className="accent-primary" />
+                <span className="text-sm flex-1">Number of songs</span>
+                <input type="number" min={1} value={exportCount} onFocus={() => setExportMode('count')}
+                  onChange={e => setExportCount(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                  className="w-20 px-2 py-1 rounded-md bg-background border border-border/40 text-sm text-right" />
+              </label>
+              <label className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${exportMode === 'hours' ? 'bg-primary/15 ring-1 ring-primary/40' : 'bg-secondary hover:bg-secondary/70'}`}>
+                <input type="radio" name="exportMode" checked={exportMode === 'hours'} onChange={() => setExportMode('hours')} className="accent-primary" />
+                <span className="text-sm flex-1">Hours of play</span>
+                <input type="number" min={0.5} step={0.5} value={exportHours} onFocus={() => setExportMode('hours')}
+                  onChange={e => setExportHours(Math.max(0.5, parseFloat(e.target.value || '0.5')))}
+                  className="w-20 px-2 py-1 rounded-md bg-background border border-border/40 text-sm text-right" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-border/30">
+              <button onClick={() => setExportTarget(null)} className="px-3 py-1.5 rounded-lg bg-secondary text-sm">Cancel</button>
+              <button onClick={handleExport} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium">
+                <Upload className="w-3.5 h-3.5" /> Export
+              </button>
+            </div>
           </div>
         </div>
       )}

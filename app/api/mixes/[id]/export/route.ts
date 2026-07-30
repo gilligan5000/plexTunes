@@ -7,7 +7,7 @@ import { stripIdPrefix } from '@/lib/media/types';
 import { mapGenreToStation, getDecadeFromYear } from '@/lib/stations';
 
 /** Collect ALL tracks that a mix resolves to (no shuffle, high limit). */
-async function resolveMixTracks(mix: any): Promise<string[]> {
+async function resolveMixTracks(mix: any): Promise<{ id: string; duration: number }[]> {
   const include = {
     artist: { select: { name: true, thumb: true } },
     album: { select: { title: true, thumb: true, year: true, genre: true } },
@@ -91,8 +91,8 @@ async function resolveMixTracks(mix: any): Promise<string[]> {
     return true;
   });
 
-  // Return raw media-server IDs (strip the track- prefix)
-  return unique.map((t: any) => stripIdPrefix(t.id));
+  // Return raw media-server IDs (strip the track- prefix) with durations (ms)
+  return unique.map((t: any) => ({ id: stripIdPrefix(t.id), duration: t?.duration ?? 0 }));
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -103,11 +103,34 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const result = await getActiveAdapter();
     if (!result) return NextResponse.json({ error: 'No media server configured' }, { status: 400 });
 
-    const trackIds = await resolveMixTracks(mix);
-    if (trackIds.length === 0) {
+    const resolved = await resolveMixTracks(mix);
+    if (resolved.length === 0) {
       return NextResponse.json({ error: 'Mix has no tracks to export' }, { status: 400 });
     }
 
+    // Optional target sizing: ?limit=<songs> or ?minutes=<total minutes>
+    const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '', 10);
+    const minutesParam = parseInt(req.nextUrl.searchParams.get('minutes') ?? '', 10);
+    let selected = resolved;
+    const applyTarget = (!isNaN(limitParam) && limitParam > 0) || (!isNaN(minutesParam) && minutesParam > 0);
+    // When targeting a subset, shuffle first so the playlist varies instead of
+    // always taking the same front-loaded tracks.
+    const pool = applyTarget ? [...resolved].sort(() => Math.random() - 0.5) : resolved;
+    if (!isNaN(limitParam) && limitParam > 0) {
+      selected = pool.slice(0, limitParam);
+    } else if (!isNaN(minutesParam) && minutesParam > 0) {
+      const targetMs = minutesParam * 60 * 1000;
+      const acc: { id: string; duration: number }[] = [];
+      let total = 0;
+      for (const t of pool) {
+        acc.push(t);
+        total += t.duration > 0 ? t.duration : 210000; // assume ~3.5min when duration unknown
+        if (total >= targetMs) break;
+      }
+      selected = acc;
+    }
+
+    const trackIds = selected.map(t => t.id);
     const playlistId = await result.adapter.createPlaylist(mix.name, trackIds);
     console.log(`Exported mix "${mix.name}" → playlist ${playlistId} (${trackIds.length} tracks)`);
 
