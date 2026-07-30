@@ -85,30 +85,6 @@ async function getStationTracks(station: any, perStationLimit: number): Promise<
   return shuffle(sorted.slice(0, 50)).slice(0, perStationLimit);
 }
 
-/**
- * Builds an OR list of per-artist track filters. If a mix has albums selected
- * for a given artist, that artist's tracks are restricted to those albums;
- * artists with no album selection contribute all their tracks.
- */
-async function buildArtistConditions(artistIds: string[], albumIds: string[]): Promise<any[]> {
-  if (!albumIds || albumIds.length === 0) {
-    return artistIds.map(id => ({ artistId: id }));
-  }
-  const selAlbums = await prisma.cachedAlbum.findMany({
-    where: { id: { in: albumIds } },
-    select: { id: true, artistId: true },
-  });
-  const albumsByArtist: Record<string, string[]> = {};
-  for (const a of selAlbums) {
-    (albumsByArtist[a.artistId] ??= []).push(a.id);
-  }
-  return artistIds.map(id =>
-    albumsByArtist[id]?.length
-      ? { artistId: id, albumId: { in: albumsByArtist[id] } }
-      : { artistId: id }
-  );
-}
-
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const mix = await prisma.mix.findUnique({ where: { id: params.id } });
@@ -131,21 +107,40 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
     }
 
-    // Get tracks from emphasized artists (optionally restricted to specific albums)
+    // Get tracks from emphasized artists (optionally restricted to specific albums).
+    // Explicitly-selected albums bypass the "popular only" filter — hand-picking
+    // an album is a direct request for those songs regardless of popularity.
     if (mix.artistIds?.length > 0) {
-      const orConditions = await buildArtistConditions(mix.artistIds, mix.albumIds ?? []);
-      const artistWhere: any = { OR: orConditions, banned: false };
-      if (mix.popularOnly) {
-        artistWhere.popularity = { gte: 1 };
+      const albumIds: string[] = mix.albumIds ?? [];
+      const albumsByArtist: Record<string, string[]> = {};
+      if (albumIds.length > 0) {
+        const selAlbums = await prisma.cachedAlbum.findMany({
+          where: { id: { in: albumIds } },
+          select: { id: true, artistId: true },
+        });
+        for (const a of selAlbums) (albumsByArtist[a.artistId] ??= []).push(a.id);
       }
-      const artistTracks = await prisma.cachedTrack.findMany({
-        where: artistWhere,
-        include: {
-          artist: { select: { name: true, thumb: true } },
-          album: { select: { title: true, thumb: true, year: true } },
-        },
-        take: 200,
-      });
+      const albumConds: any[] = [];
+      const plainArtistIds: string[] = [];
+      for (const id of mix.artistIds as string[]) {
+        if (albumsByArtist[id]?.length) albumConds.push({ artistId: id, albumId: { in: albumsByArtist[id] } });
+        else plainArtistIds.push(id);
+      }
+      const artInclude = {
+        artist: { select: { name: true, thumb: true } },
+        album: { select: { title: true, thumb: true, year: true } },
+      };
+      const artistTracks: any[] = [];
+      if (albumConds.length > 0) {
+        const t = await prisma.cachedTrack.findMany({ where: { OR: albumConds, banned: false }, include: artInclude, take: 200 });
+        artistTracks.push(...t);
+      }
+      if (plainArtistIds.length > 0) {
+        const where: any = { artistId: { in: plainArtistIds }, banned: false };
+        if (mix.popularOnly) where.popularity = { gte: 1 };
+        const t = await prisma.cachedTrack.findMany({ where, include: artInclude, take: 200 });
+        artistTracks.push(...t);
+      }
       // Double-add for emphasis weighting (dedup will keep unique, but shuffle position is better)
       allTracks.push(...artistTracks);
       allTracks.push(...artistTracks);
