@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { mapGenreToStation, getDecadeFromYear } from '@/lib/stations';
+import { arrangeByPopularityAndSpread } from '@/lib/mix-order';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -141,17 +142,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       };
       const artistTracks: any[] = [];
       if (albumConds.length > 0) {
-        const t = await prisma.cachedTrack.findMany({ where: { OR: albumConds, banned: false }, include: artInclude, take: 200 });
+        const t = await prisma.cachedTrack.findMany({ where: { OR: albumConds, banned: false }, include: artInclude, orderBy: { popularity: 'desc' }, take: 400 });
         artistTracks.push(...t);
       }
       if (plainArtistIds.length > 0) {
         const where: any = { artistId: { in: plainArtistIds }, banned: false };
         if (mix.popularOnly) where.popularity = { gte: hitsMinPop };
-        const t = await prisma.cachedTrack.findMany({ where, include: artInclude, take: 200 });
+        const t = await prisma.cachedTrack.findMany({ where, include: artInclude, orderBy: { popularity: 'desc' }, take: 400 });
         artistTracks.push(...t);
       }
-      // Double-add for emphasis weighting (dedup will keep unique, but shuffle position is better)
-      allTracks.push(...artistTracks);
       allTracks.push(...artistTracks);
     }
 
@@ -168,8 +167,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return true;
     });
 
-    // Shuffle and select
-    const selected = shuffle(unique).slice(0, limit);
+    // Rank by popularity while spreading artists out, then select. This keeps
+    // the most popular tracks up front, avoids clustering the same artist, and
+    // removes the positional (alphabetical) bias the old plain shuffle inherited
+    // from the database fetch order.
+    const selected = arrangeByPopularityAndSpread(unique).slice(0, limit);
 
     return NextResponse.json({ mix, tracks: selected });
   } catch (e: any) {

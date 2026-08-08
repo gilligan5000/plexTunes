@@ -5,9 +5,10 @@ import { prisma } from '@/lib/db';
 import { getActiveAdapter } from '@/lib/media/factory';
 import { stripIdPrefix } from '@/lib/media/types';
 import { mapGenreToStation, getDecadeFromYear } from '@/lib/stations';
+import { arrangeByPopularityAndSpread } from '@/lib/mix-order';
 
 /** Collect ALL tracks that a mix resolves to (no shuffle, high limit). */
-type ResolvedTrack = { id: string; duration: number; emphasized: boolean };
+type ResolvedTrack = { id: string; duration: number; emphasized: boolean; artistId: string; popularity: number };
 
 async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
   const include = {
@@ -96,7 +97,7 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
 
     // Selected-album tracks: no popularity filter.
     if (albumConds.length > 0) {
-      const albumTracks = await prisma.cachedTrack.findMany({ where: { OR: albumConds, banned: false }, include, take: 500 });
+      const albumTracks = await prisma.cachedTrack.findMany({ where: { OR: albumConds, banned: false }, include, orderBy: { popularity: 'desc' }, take: 1000 });
       for (const t of albumTracks) emphasizedIds.add(t.id);
       allTracks.push(...albumTracks);
     }
@@ -104,7 +105,7 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
     if (plainArtistIds.length > 0) {
       const artistWhere: any = { artistId: { in: plainArtistIds }, banned: false };
       if (mix.popularOnly) artistWhere.popularity = { gte: hitsMinPop };
-      const artistTracks = await prisma.cachedTrack.findMany({ where: artistWhere, include, take: 500 });
+      const artistTracks = await prisma.cachedTrack.findMany({ where: artistWhere, include, orderBy: { popularity: 'desc' }, take: 1000 });
       for (const t of artistTracks) emphasizedIds.add(t.id);
       allTracks.push(...artistTracks);
     }
@@ -118,8 +119,16 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
     return true;
   });
 
-  // Return raw media-server IDs (strip the track- prefix) with durations (ms)
-  return unique.map((t: any) => ({ id: stripIdPrefix(t.id), duration: t?.duration ?? 0, emphasized: emphasizedIds.has(t.id) }));
+  // Return raw media-server IDs (strip the track- prefix) with durations (ms).
+  // Carry artistId + popularity so the selection step can rank by popularity
+  // and spread artists out.
+  return unique.map((t: any) => ({
+    id: stripIdPrefix(t.id),
+    duration: t?.duration ?? 0,
+    emphasized: emphasizedIds.has(t.id),
+    artistId: t?.artistId ?? '',
+    popularity: t?.popularity ?? 0,
+  }));
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -138,16 +147,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Optional target sizing: ?limit=<songs> or ?minutes=<total minutes>
     const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '', 10);
     const minutesParam = parseInt(req.nextUrl.searchParams.get('minutes') ?? '', 10);
-    let selected = resolved;
+    // Default order (no target): popularity-first, artists spread out.
+    let selected = arrangeByPopularityAndSpread(resolved);
     const applyTarget = (!isNaN(limitParam) && limitParam > 0) || (!isNaN(minutesParam) && minutesParam > 0);
 
     if (applyTarget) {
-      const shuffle = <T,>(a: T[]) => a.map(v => [Math.random(), v] as [number, T]).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
-      // Split emphasized (artist/album) tracks from station fill, shuffle each,
-      // then weave emphasized tracks evenly through the result so hand-picked
-      // artists/albums are guaranteed representation instead of being diluted.
-      const emphasized = shuffle(resolved.filter(t => t.emphasized));
-      const fill = shuffle(resolved.filter(t => !t.emphasized));
+      // Split emphasized (artist/album) tracks from station fill; rank each by
+      // popularity while spreading artists out, then weave emphasized tracks
+      // evenly through the result so hand-picked artists/albums are guaranteed
+      // representation instead of being diluted.
+      const emphasized = arrangeByPopularityAndSpread(resolved.filter(t => t.emphasized));
+      const fill = arrangeByPopularityAndSpread(resolved.filter(t => !t.emphasized));
       const woven: ResolvedTrack[] = [];
       let ei = 0, fi = 0;
       const total = emphasized.length + fill.length;
