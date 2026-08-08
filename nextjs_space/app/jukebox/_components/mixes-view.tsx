@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Disc3, Play, Loader2, Music2, Plus, Minus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
+import { Disc3, Play, Loader2, Music2, Plus, Minus, Pencil, Trash2, X, Save, Check, Radio, Users, ChevronLeft, ChevronRight, Download, Upload, Ban } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePlayer, TrackInfo } from '@/lib/player-context';
 import type { ViewType } from './jukebox-shell';
@@ -173,6 +173,8 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [formAlbumIds, setFormAlbumIds] = useState<string[]>([]);
   const [formPopularOnly, setFormPopularOnly] = useState(true);
   const [formPopularityBias, setFormPopularityBias] = useState(0);
+  const [formIgnoredArtistIds, setFormIgnoredArtistIds] = useState<string[]>([]);
+  const [ignoreSearch, setIgnoreSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Album picker state (per-artist album selection)
@@ -354,6 +356,8 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormAlbumIds(mix.albumIds ?? []);
     setFormPopularOnly(mix.popularOnly ?? true);
     setFormPopularityBias(typeof mix.popularityBias === 'number' ? mix.popularityBias : 0);
+    setFormIgnoredArtistIds(mix.ignoredArtistIds ?? []);
+    setIgnoreSearch('');
     setArtistSearch('');
   };
 
@@ -365,6 +369,8 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormAlbumIds([]);
     setFormPopularOnly(true);
     setFormPopularityBias(0);
+    setFormIgnoredArtistIds([]);
+    setIgnoreSearch('');
     setArtistSearch('');
   };
 
@@ -372,7 +378,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     if (!formName.trim()) { toast.error('Name is required'); return; }
     setSaving(true);
     try {
-      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, albumIds: formAlbumIds, popularOnly: formPopularOnly, popularityBias: formPopularityBias };
+      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, albumIds: formAlbumIds, ignoredArtistIds: formIgnoredArtistIds, popularOnly: formPopularOnly, popularityBias: formPopularityBias };
       if (editing === 'new') {
         const res = await fetch('/api/mixes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await res?.json?.();
@@ -443,6 +449,10 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
       }
       return [...prev, id];
     });
+  };
+
+  const toggleIgnoredArtist = (id: string) => {
+    setFormIgnoredArtistIds(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]);
   };
 
   const openAlbumPicker = async (artist: any) => {
@@ -738,6 +748,52 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
             </div>
           </div>
         )}
+          </div>
+
+          {/* Ignored Artists - never include these artists in the mix */}
+          <div className="flex flex-col">
+            <label className="text-sm font-medium flex items-center gap-2 mb-1">
+              <Ban className="w-4 h-4 text-destructive" /> Ignored Artists
+              {formIgnoredArtistIds.length > 0 && <span className="text-xs text-destructive">({formIgnoredArtistIds.length} ignored)</span>}
+            </label>
+            <p className="text-[11px] text-muted-foreground mb-1.5">Search and add artists you never want to hear in this mix — their tracks are excluded from live playback and exports, even if they'd otherwise qualify.</p>
+            {/* Selected ignored chips */}
+            {formIgnoredArtistIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2 max-h-16 overflow-y-auto">
+                {formIgnoredArtistIds.map(id => {
+                  const a = allArtists.find(ar => ar.id === id);
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-[10px]">
+                      {a?.name ?? id}
+                      <button onClick={() => toggleIgnoredArtist(id)} className="hover:text-white"><X className="w-2.5 h-2.5" /></button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {/* Search box */}
+            <input value={ignoreSearch} onChange={e => setIgnoreSearch(e.target.value)}
+              placeholder="Search artists to ignore..." className="w-full px-3 py-1.5 rounded-lg bg-secondary border border-border/30 text-xs" />
+            {/* Matching results */}
+            {ignoreSearch.trim() && (
+              <div className="flex flex-wrap gap-1 mt-2 max-h-28 overflow-y-auto">
+                {allArtists
+                  .filter(a => (a?.name ?? '').toLowerCase().includes(ignoreSearch.toLowerCase()))
+                  .slice(0, 24)
+                  .map(a => {
+                    const on = formIgnoredArtistIds.includes(a.id);
+                    return (
+                      <button key={a.id} onClick={() => toggleIgnoredArtist(a.id)}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-colors ${on ? 'bg-destructive text-white' : 'bg-secondary hover:bg-secondary/70'}`}>
+                        {on ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />} {a?.name ?? 'Unknown'}
+                      </button>
+                    );
+                  })}
+                {allArtists.filter(a => (a?.name ?? '').toLowerCase().includes(ignoreSearch.toLowerCase())).length === 0 && (
+                  <span className="text-[11px] text-muted-foreground py-1">No matching artists</span>
+                )}
+              </div>
+            )}
           </div>
       </div>
     );

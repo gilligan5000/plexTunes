@@ -113,11 +113,15 @@ async function resolveMixTracks(mix: any): Promise<ResolvedTrack[]> {
 
   // Deduplicate by cachedTrack.id
   const seen = new Set<string>();
-  const unique = allTracks.filter(t => {
+  let unique = allTracks.filter(t => {
     if (seen.has(t.id)) return false;
     seen.add(t.id);
     return true;
   });
+
+  // Drop any tracks from ignored artists before returning the resolved pool.
+  const ignored = new Set<string>(mix.ignoredArtistIds ?? []);
+  if (ignored.size > 0) unique = unique.filter(t => !ignored.has(t.artistId));
 
   // Return raw media-server IDs (strip the track- prefix) with durations (ms).
   // Carry artistId + popularity so the selection step can rank by popularity

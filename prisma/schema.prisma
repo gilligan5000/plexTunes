@@ -184,6 +184,9 @@ model Mix {
   stationIds      String[] @default([])
   artistIds       String[] @default([])
   albumIds        String[] @default([])
+  // Artists to exclude entirely from this mix, regardless of popularity or
+  // station membership. Applied to live playback, preview, and export.
+  ignoredArtistIds String[] @default([])
   popularOnly     Boolean  @default(true)
   // Selection bias: 0 = balanced/randomized spread (current behavior),
   // 1 = strongly prioritize the highest-popularity tracks. Applies to live

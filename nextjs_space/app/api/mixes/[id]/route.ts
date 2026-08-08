@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
-    const { name, stationIds, artistIds, albumIds, popularOnly, popularityBias, imageUrl } = body ?? {};
+    const { name, stationIds, artistIds, albumIds, ignoredArtistIds, popularOnly, popularityBias, imageUrl } = body ?? {};
     const mix = await prisma.mix.update({
       where: { id: params.id },
       data: {
@@ -24,6 +24,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         ...(stationIds !== undefined && { stationIds }),
         ...(artistIds !== undefined && { artistIds }),
         ...(albumIds !== undefined && { albumIds }),
+        ...(ignoredArtistIds !== undefined && { ignoredArtistIds }),
         ...(popularOnly !== undefined && { popularOnly }),
         ...(popularityBias !== undefined && { popularityBias: Math.max(0, Math.min(1, Number(popularityBias) || 0)) }),
         ...(imageUrl !== undefined && { imageUrl }),

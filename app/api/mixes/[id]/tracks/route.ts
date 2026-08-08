@@ -161,11 +161,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     // Deduplicate
     const seen = new Set<string>();
-    const unique = allTracks.filter(t => {
+    let unique = allTracks.filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
       return true;
     });
+
+    // Drop any tracks from ignored artists (applies everywhere the mix plays).
+    const ignored = new Set<string>((mix as any).ignoredArtistIds ?? []);
+    if (ignored.size > 0) unique = unique.filter(t => !ignored.has(t.artistId));
 
     // Rank by popularity while spreading artists out, then select. This keeps
     // the most popular tracks up front, avoids clustering the same artist, and
