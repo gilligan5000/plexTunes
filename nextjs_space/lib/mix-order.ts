@@ -59,3 +59,46 @@ export function arrangeByPopularityAndSpread<T extends OrderableTrack>(tracks: T
   }
   return result;
 }
+
+/**
+ * Select + order tracks according to a popularity bias in [0, 1]:
+ *   bias = 0  -> balanced, randomized spread across artists (arrangeByPopularityAndSpread).
+ *   bias = 1  -> strictly the highest-popularity tracks, popularity-ranked.
+ *   in between -> each track's rank is a blend of its popularity and a random
+ *                 roll, so higher bias pulls the top-rated "bangers" to the top
+ *                 (and, when a count is given, into the output) while lower bias
+ *                 keeps more of the randomized variety.
+ *
+ * When `count` is provided the result is trimmed to that many tracks AFTER the
+ * bias-weighted ranking, so a high bias fills a small playlist with the absolute
+ * top-rated songs rather than a round-robin sampling.
+ */
+export function selectTracksWithBias<T extends OrderableTrack>(
+  tracks: T[],
+  bias: number,
+  count?: number,
+): T[] {
+  const b = Math.max(0, Math.min(1, Number.isFinite(bias) ? bias : 0));
+
+  // At the low end, preserve the tuned balanced/spread behavior exactly.
+  if (b <= 0) {
+    const spread = arrangeByPopularityAndSpread(tracks);
+    return count && count > 0 ? spread.slice(0, count) : spread;
+  }
+
+  // Blend popularity (normalized 0..1) with a random roll. Higher bias makes
+  // popularity dominate; lower bias keeps randomness in the driver's seat.
+  const scored = tracks.map((t) => ({
+    t,
+    score: b * ((t.popularity ?? 0) / 100) + (1 - b) * Math.random(),
+  }));
+  scored.sort((a, c) => c.score - a.score);
+  let pool = scored.map((s) => s.t);
+  if (count && count > 0) pool = pool.slice(0, count);
+
+  // Once the banger-weighted SET is chosen, still spread artists out for
+  // playback unless the user pushed the slider near "top rated only", where
+  // strict popularity ordering is what they asked for.
+  if (b >= 0.85) return pool;
+  return arrangeByPopularityAndSpread(pool);
+}

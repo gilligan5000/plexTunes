@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { mapGenreToStation, getDecadeFromYear } from '@/lib/stations';
-import { arrangeByPopularityAndSpread } from '@/lib/mix-order';
+import { selectTracksWithBias } from '@/lib/mix-order';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -171,7 +171,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     // the most popular tracks up front, avoids clustering the same artist, and
     // removes the positional (alphabetical) bias the old plain shuffle inherited
     // from the database fetch order.
-    const selected = arrangeByPopularityAndSpread(unique).slice(0, limit);
+    const selected = selectTracksWithBias(unique, (mix as any).popularityBias ?? 0, limit);
 
     return NextResponse.json({ mix, tracks: selected });
   } catch (e: any) {

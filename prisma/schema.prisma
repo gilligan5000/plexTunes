@@ -185,6 +185,10 @@ model Mix {
   artistIds       String[] @default([])
   albumIds        String[] @default([])
   popularOnly     Boolean  @default(true)
+  // Selection bias: 0 = balanced/randomized spread (current behavior),
+  // 1 = strongly prioritize the highest-popularity tracks. Applies to live
+  // playback, preview, and export alike.
+  popularityBias  Float    @default(0)
   imageUrl        String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

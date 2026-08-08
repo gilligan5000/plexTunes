@@ -172,6 +172,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
   const [formArtistIds, setFormArtistIds] = useState<string[]>([]);
   const [formAlbumIds, setFormAlbumIds] = useState<string[]>([]);
   const [formPopularOnly, setFormPopularOnly] = useState(true);
+  const [formPopularityBias, setFormPopularityBias] = useState(0);
   const [saving, setSaving] = useState(false);
 
   // Album picker state (per-artist album selection)
@@ -352,6 +353,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormArtistIds(mix.artistIds ?? []);
     setFormAlbumIds(mix.albumIds ?? []);
     setFormPopularOnly(mix.popularOnly ?? true);
+    setFormPopularityBias(typeof mix.popularityBias === 'number' ? mix.popularityBias : 0);
     setArtistSearch('');
   };
 
@@ -362,6 +364,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     setFormArtistIds([]);
     setFormAlbumIds([]);
     setFormPopularOnly(true);
+    setFormPopularityBias(0);
     setArtistSearch('');
   };
 
@@ -369,7 +372,7 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
     if (!formName.trim()) { toast.error('Name is required'); return; }
     setSaving(true);
     try {
-      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, albumIds: formAlbumIds, popularOnly: formPopularOnly };
+      const body = { name: formName, stationIds: formStationIds, artistIds: formArtistIds, albumIds: formAlbumIds, popularOnly: formPopularOnly, popularityBias: formPopularityBias };
       if (editing === 'new') {
         const res = await fetch('/api/mixes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await res?.json?.();
@@ -556,6 +559,33 @@ export default function MixesView({ onNavigate, stationQueueSize = 25, stationRo
               <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${formPopularOnly ? 'left-5' : 'left-0.5'}`} />
             </button>
             <span className="text-sm">Popular tracks only</span>
+          </div>
+
+          {/* Popularity bias slider: randomize all <-> prioritize top rated */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Selection balance</span>
+              <span className="text-xs text-primary font-medium">
+                {formPopularityBias <= 0 ? 'Randomize all'
+                  : formPopularityBias >= 1 ? 'Top rated only'
+                  : formPopularityBias <= 0.25 ? 'Mostly random'
+                  : formPopularityBias >= 0.75 ? 'Mostly top rated'
+                  : 'Balanced'}
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={1} step={0.25}
+              value={formPopularityBias}
+              onChange={e => setFormPopularityBias(parseFloat(e.target.value))}
+              className="w-full accent-primary cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>Randomize all</span>
+              <span>Prioritize top rated</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Higher settings fill the mix with your highest-rated songs first — great for shorter playlists that should be all bangers. Applies to live playback and exports.
+            </p>
           </div>
         </div>
 

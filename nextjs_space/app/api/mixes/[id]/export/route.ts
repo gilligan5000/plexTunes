@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db';
 import { getActiveAdapter } from '@/lib/media/factory';
 import { stripIdPrefix } from '@/lib/media/types';
 import { mapGenreToStation, getDecadeFromYear } from '@/lib/stations';
-import { arrangeByPopularityAndSpread } from '@/lib/mix-order';
+import { selectTracksWithBias } from '@/lib/mix-order';
 
 /** Collect ALL tracks that a mix resolves to (no shuffle, high limit). */
 type ResolvedTrack = { id: string; duration: number; emphasized: boolean; artistId: string; popularity: number };
@@ -147,8 +147,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Optional target sizing: ?limit=<songs> or ?minutes=<total minutes>
     const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '', 10);
     const minutesParam = parseInt(req.nextUrl.searchParams.get('minutes') ?? '', 10);
-    // Default order (no target): popularity-first, artists spread out.
-    let selected = arrangeByPopularityAndSpread(resolved);
+    // Selection balance saved on the mix: 0 = randomized spread, 1 = top rated.
+    const bias = (mix as any).popularityBias ?? 0;
+    // Default order (no target): apply the mix's selection balance.
+    let selected = selectTracksWithBias(resolved, bias);
     const applyTarget = (!isNaN(limitParam) && limitParam > 0) || (!isNaN(minutesParam) && minutesParam > 0);
 
     if (applyTarget) {
@@ -156,8 +158,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // popularity while spreading artists out, then weave emphasized tracks
       // evenly through the result so hand-picked artists/albums are guaranteed
       // representation instead of being diluted.
-      const emphasized = arrangeByPopularityAndSpread(resolved.filter(t => t.emphasized));
-      const fill = arrangeByPopularityAndSpread(resolved.filter(t => !t.emphasized));
+      const emphasized = selectTracksWithBias(resolved.filter(t => t.emphasized), bias);
+      const fill = selectTracksWithBias(resolved.filter(t => !t.emphasized), bias);
       const woven: ResolvedTrack[] = [];
       let ei = 0, fi = 0;
       const total = emphasized.length + fill.length;
