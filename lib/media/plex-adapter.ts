@@ -103,6 +103,7 @@ export class PlexAdapter implements MediaServerAdapter {
         genre: t?.Genre?.[0]?.tag ?? null,
         thumb: t?.thumb ?? t?.parentThumb ?? null,
         mediaKey: t?.Media?.[0]?.Part?.[0]?.key ?? null,
+        ratingCount: typeof t?.ratingCount === 'number' ? t.ratingCount : null,
       };
     });
 

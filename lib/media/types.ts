@@ -47,6 +47,7 @@ export interface MediaTrack {
   genre: string | null;
   thumb: string | null;
   mediaKey: string | null;     // Identifier used to request a stream via /api/plex/stream
+  ratingCount?: number | null; // Plex-native per-track popularity (Last.fm listener count) - drives the flame icon
 }
 
 export interface MediaLibraryBundle {

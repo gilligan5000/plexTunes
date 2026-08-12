@@ -79,6 +79,8 @@ model CachedTrack {
   mediaKey        String?
   popularity      Int?
   spotifyChecked  Boolean       @default(false)
+  plexRatingCount Int?          // Plex-native per-track listener count (drives the flame icon)
+  plexPopular     Boolean       @default(false) // top tracks for the artist per Plex
   playCount       Int           @default(0)
   lastPlayedAt    DateTime?
   summary         String?
@@ -104,6 +106,8 @@ model CachedTrack {
   @@index([billboardPeak])
   @@index([hearted])
   @@index([banned])
+  @@index([plexPopular])
+  @@index([plexRatingCount])
 }
 
 model Station {

@@ -147,6 +147,7 @@ export async function POST(req: NextRequest) {
           albumTitle: t.albumTitle,
           thumb: t.thumb,
           mediaKey: t.mediaKey,
+          ...(typeof (t as any).ratingCount === 'number' ? { plexRatingCount: (t as any).ratingCount } : {}),
         },
         create: {
           id: t.id,
@@ -162,6 +163,7 @@ export async function POST(req: NextRequest) {
           albumTitle: t.albumTitle,
           thumb: t.thumb,
           mediaKey: t.mediaKey,
+          plexRatingCount: typeof (t as any).ratingCount === 'number' ? (t as any).ratingCount : null,
         },
       });
       savedTracks += 1;

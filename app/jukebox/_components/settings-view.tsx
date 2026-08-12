@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, CheckCircle2, XCircle, Loader2, AlertCircle, Database, RefreshCw, Music2, Gauge, Radio, Plus, Trash2, ChevronUp, ChevronDown, BarChart3, Zap, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Settings, CheckCircle2, XCircle, Loader2, AlertCircle, Database, RefreshCw, Music2, Gauge, Radio, Plus, Trash2, ChevronUp, ChevronDown, BarChart3, Zap, SlidersHorizontal, Sparkles, Flame } from 'lucide-react';
 import { motion } from 'framer-motion';
 import WledPanelsSection from './wled-panels-section';
 
@@ -814,6 +814,27 @@ export default function SettingsView({
     setPopularityRunning(false);
   };
 
+  const handleRunPlexPopularity = async () => {
+    setPopularityRunning(true);
+    setPopularityProgress('Reading per-track listener counts from Plex...');
+    try {
+      const res = await fetch('/api/popularity/plex', { method: 'POST' });
+      const data = await res.json();
+      if (data?.error) {
+        setPopularityProgress(`Error: ${data.error}`);
+      } else {
+        setPopularityProgress(
+          `Done! Scored ${data?.withListeners ?? 0} of ${data?.matched ?? 0} tracks from Plex, ` +
+          `and flagged ${data?.flagged ?? 0} popular tracks across ${data?.artists ?? 0} artists.`,
+        );
+        setTimeout(fetchDiagnostics, 1000);
+      }
+    } catch (e: any) {
+      setPopularityProgress(`Error: ${e?.message ?? 'Failed'}`);
+    }
+    setPopularityRunning(false);
+  };
+
   const handleRunBpm = async () => {
     setBpmRunning(true);
     setBpmProgress('Starting BPM scrape...');
@@ -952,6 +973,39 @@ export default function SettingsView({
               />
             );
           })}
+        </div>
+
+        <div className="mb-4 p-3 rounded-lg bg-background/50 border border-accent/30">
+          <h4 className="text-sm font-medium flex items-center gap-2 mb-1">
+            <Flame className="w-4 h-4 text-orange-400" />
+            Plex Native Popularity
+          </h4>
+          <p className="text-xs text-muted-foreground mb-3">
+            Plex stores a real listener count for every individual track &mdash; the same data behind the little
+            flame next to an artist&rsquo;s popular songs. It varies song by song, so a genuine hit lands at
+            95&ndash;100 while an album cut by the same artist lands mid-range instead of the whole record
+            scoring as popular. Tracks Plex has no listener data for are left for the providers below to fill in.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={handleRunPlexPopularity}
+              disabled={popularityRunning}
+              className="px-4 py-2 text-xs rounded-lg bg-orange-500/90 text-white hover:bg-orange-500 transition-colors flex items-center gap-1 disabled:opacity-50"
+            >
+              {popularityRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flame className="w-3 h-3" />}
+              Import Popularity from Plex
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Clear the popularity imported from Plex? Tracks will be re-checked by the providers below.')) return;
+                try { await fetch('/api/popularity/plex', { method: 'DELETE' }); fetchDiagnostics(); } catch { /* ignore */ }
+              }}
+              className="px-4 py-2 text-xs rounded-lg bg-secondary hover:bg-secondary/80 transition-colors flex items-center gap-1 text-amber-400"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Clear Plex Popularity
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-2 flex-wrap">
